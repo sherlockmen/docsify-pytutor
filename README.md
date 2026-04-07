@@ -6,8 +6,8 @@
 
 ## 功能特性
 
-- 支持 `pytutor-python` 代码块
-- 支持 `pytutor-java` 代码块
+- 支持 `python` 代码块可视化交互展示
+- 支持 `java` 代码块可视化交互展示
 - 支持 `pytutor` 作为 Python 简写
 - 自动注入样式，无需手动编写大段 CSS
 - 自带“复制代码”按钮
@@ -31,60 +31,19 @@ https://github.com/sherlockmen/docsify-pytutor
 
 ### 方式一：通过 CDN 引用（推荐）
 
-建议发布版本标签后，通过 **jsDelivr** 固定版本引用，这样更稳定。
+在`docsify`的`index.html`文件中引用以下CDN地址
 
 ```html
 <script src="https://cdn.jsdelivr.net/gh/sherlockmen/docsify-pytutor@v1.0.0/dist/docsify-pytutor.js"></script>
 ```
 
-### 方式二：直接引用 master 分支
-
-如果还没有打版本标签，也可以临时直接引用 `master` 分支：
-
-```html
-<script src="https://cdn.jsdelivr.net/gh/sherlockmen/docsify-pytutor@master/dist/docsify-pytutor.js"></script>
-```
-
-> 不建议在正式生产环境长期使用分支引用，建议改为固定版本号引用。
-
-### 方式三：本地引用
+### 方式二：本地引用
 
 将插件文件下载到项目中后，本地引入：
 
 ```html
 <script src="./dist/docsify-pytutor.js"></script>
 ```
-
----
-
-## 如何发布一个可供 CDN 固定引用的版本
-
-在本地仓库执行：
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-发布后，别人就可以通过固定版本号引用：
-
-```html
-<script src="https://cdn.jsdelivr.net/gh/sherlockmen/docsify-pytutor@v1.0.0/dist/docsify-pytutor.js"></script>
-```
-
-后续发新版本时：
-
-```bash
-git tag v1.0.1
-git push origin v1.0.1
-```
-
-然后使用：
-
-```html
-<script src="https://cdn.jsdelivr.net/gh/sherlockmen/docsify-pytutor@v1.0.1/dist/docsify-pytutor.js"></script>
-```
-
 ---
 
 ## 快速开始
@@ -136,14 +95,10 @@ git push origin v1.0.1
   </script>
 
   <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
-
-  <!-- 推荐：固定版本 -->
   <script src="https://cdn.jsdelivr.net/gh/sherlockmen/docsify-pytutor@v1.0.0/dist/docsify-pytutor.js"></script>
 </body>
 </html>
 ```
-
-> 插件会自动注册到 Docsify，不需要再手动编写 `plugins: [function(hook){ ... }]`。
 
 ---
 
@@ -151,7 +106,6 @@ git push origin v1.0.1
 
 ### Python
 
-````md
 ```pytutor-python
 def for_loop(n: int) -> int:
     """for 循环"""
@@ -165,21 +119,17 @@ if __name__ == "__main__":
     res = for_loop(n)
     print(f"for循环的求和结果 res = {res}")
 ```
-````
 
 ### Python 简写
 
-````md
 ```pytutor
 nums = [1, 2, 3]
 for n in nums:
     print(n)
 ```
-````
 
 ### Java
 
-````md
 ```pytutor-java
 public class Main {
     public static void main(String[] args) {
@@ -190,7 +140,6 @@ public class Main {
     }
 }
 ```
-````
 
 ---
 
@@ -263,38 +212,6 @@ window.$docsify = {
 | `minHeight` | iframe 最小高度 | `420` |
 | `maxHeight` | iframe 最大高度 | `900` |
 | `mobileMinHeight` | 移动端最小高度 | `360` |
-
----
-
-## 为什么现在更不容易出现滚动条
-
-由于 `pythontutor.com` 是跨域 iframe，父页面无法直接读取 iframe 内部真实高度，因此无法做到“读取内部内容后百分百精准自适应”。
-
-这个插件现在采用的是更实用的方案：
-
-- 根据代码行数动态计算 iframe 高度
-- 代码越长，iframe 越高
-- 再配合 `minHeight` / `maxHeight` 做范围控制
-
-因此大多数教学示例下，内部滚动条会明显减少。
-
----
-
-## 使用场景
-
-适合：
-
-- Python 教程
-- Java 基础教学
-- 数据结构与算法演示
-- 变量 / 引用 / 栈堆变化可视化
-- Docsify 教学文档站点
-
-不太适合：
-
-- 大型项目代码
-- 依赖复杂第三方库的代码
-- 文件读写 / 网络请求 / GUI / 多线程场景
 
 ---
 
