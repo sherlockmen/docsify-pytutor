@@ -106,6 +106,7 @@ https://github.com/sherlockmen/docsify-pytutor
 
 ### Python
 
+````md
 ```pytutor-python
 def for_loop(n: int) -> int:
     """for 循环"""
@@ -119,17 +120,21 @@ if __name__ == "__main__":
     res = for_loop(n)
     print(f"for循环的求和结果 res = {res}")
 ```
+````
 
 ### Python 简写
 
+````md
 ```pytutor
 nums = [1, 2, 3]
 for n in nums:
     print(n)
 ```
+````
 
 ### Java
 
+````md
 ```pytutor-java
 public class Main {
     public static void main(String[] args) {
@@ -140,6 +145,7 @@ public class Main {
     }
 }
 ```
+````
 
 ---
 
