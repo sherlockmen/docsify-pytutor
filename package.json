@@ -1,0 +1,16 @@
+{
+  "name": "docsify-pytutor-plugin",
+  "version": "1.0.0",
+  "description": "A Docsify plugin for embedding Python Tutor visualizations for Python and Java code blocks.",
+  "main": "dist/docsify-pytutor.js",
+  "keywords": [
+    "docsify",
+    "plugin",
+    "python tutor",
+    "pythontutor",
+    "markdown",
+    "python",
+    "java"
+  ],
+  "license": "MIT"
+}
