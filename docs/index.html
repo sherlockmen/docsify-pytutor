@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <title>docsify-pytutor-plugin Demo</title>
+  <title>docsify-pytutor Demo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify@4/lib/themes/vue.css" />
 </head>
@@ -11,17 +11,21 @@
 
   <script>
     window.$docsify = {
-      name: 'docsify-pytutor-plugin',
-      repo: '',
+      name: 'docsify-pytutor',
+      repo: 'sherlockmen/docsify-pytutor',
       loadSidebar: false,
       subMaxLevel: 2,
+      coverpage: false,
+      homepage: 'README.md',
       pytutor: {
         ui: {
           showNote: false,
           maxWidth: '960px',
-          aspectRatio: '2.35 / 1',
-          minHeight: '400px',
-          maxHeight: '500px'
+          baseHeight: 420,
+          lineHeight: 24,
+          minHeight: 420,
+          maxHeight: 900,
+          mobileMinHeight: 360
         }
       }
     };

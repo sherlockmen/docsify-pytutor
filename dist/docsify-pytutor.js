@@ -34,28 +34,27 @@
       showNote: false,
       noteText: '说明：适合小段教学示例代码，不适合复杂项目代码。',
       maxWidth: '960px',
-      aspectRatio: '2.35 / 1',
-      minHeight: '400px',
-      maxHeight: '500px'
+      baseHeight: 420,
+      lineHeight: 24,
+      minHeight: 420,
+      maxHeight: 900,
+      mobileMinHeight: 360
     }
   };
 
+  function isPlainObject(value) {
+    return value && typeof value === 'object' && !Array.isArray(value);
+  }
+
   function deepMerge(target, source) {
-    var out = Object.assign({}, target);
+    var out = Object.assign({}, target || {});
     if (!source) return out;
 
     Object.keys(source).forEach(function (key) {
       var targetValue = out[key];
       var sourceValue = source[key];
 
-      if (
-        targetValue &&
-        sourceValue &&
-        typeof targetValue === 'object' &&
-        !Array.isArray(targetValue) &&
-        typeof sourceValue === 'object' &&
-        !Array.isArray(sourceValue)
-      ) {
+      if (isPlainObject(targetValue) && isPlainObject(sourceValue)) {
         out[key] = deepMerge(targetValue, sourceValue);
       } else {
         out[key] = sourceValue;
@@ -65,7 +64,7 @@
     return out;
   }
 
-  function getDocsifyConfig() {
+  function getMergedConfig() {
     var $docsify = window.$docsify || {};
     return deepMerge(DEFAULT_CONFIG, $docsify.pytutor || {});
   }
@@ -77,7 +76,6 @@
     style.id = STYLE_ID;
     style.textContent = [
       ':root {',
-      '  --pt-bg: #f8fafc;',
       '  --pt-card-bg: #ffffff;',
       '  --pt-border: #e6ebf2;',
       '  --pt-border-hover: #d7e0ea;',
@@ -101,10 +99,6 @@
       '  box-shadow: var(--pt-shadow);',
       '  transition: all 0.2s ease;',
       '  overflow: hidden;',
-      '  --pt-iframe-max-width: 960px;',
-      '  --pt-iframe-aspect-ratio: 2.35 / 1;',
-      '  --pt-iframe-min-height: 400px;',
-      '  --pt-iframe-max-height: 500px;',
       '}',
       '.pytutor-wrapper:hover {',
       '  border-color: var(--pt-border-hover);',
@@ -119,8 +113,12 @@
       '  padding-bottom: 12px;',
       '  border-bottom: 1px solid var(--pt-border);',
       '}',
-      '.pytutor-toolbar .lang-badge,',
-      '.pytutor-title {',
+      '.pytutor-toolbar-right {',
+      '  display: flex;',
+      '  align-items: center;',
+      '  gap: 8px;',
+      '}',
+      '.pytutor-toolbar .lang-badge {',
       '  font-size: 18px;',
       '  font-weight: 600;',
       '  color: var(--pt-text);',
@@ -161,30 +159,17 @@
       '.pytutor-wrapper iframe {',
       '  display: block;',
       '  width: 100%;',
-      '  max-width: var(--pt-iframe-max-width);',
+      '  max-width: 960px;',
       '  margin: 0 auto;',
       '  border: 1px solid var(--pt-border);',
       '  border-radius: var(--pt-inner-radius);',
       '  background: var(--pt-card-bg);',
       '  box-sizing: border-box;',
       '  overflow: hidden;',
-      '  aspect-ratio: var(--pt-iframe-aspect-ratio);',
-      '  min-height: var(--pt-iframe-min-height);',
-      '  max-height: var(--pt-iframe-max-height);',
-      '  height: auto;',
       '}',
       '.pytutor-note {',
       '  margin-top: 12px;',
       '  padding-left: 2px;',
-      '  font-size: 13px;',
-      '  line-height: 1.6;',
-      '  color: var(--pt-subtext);',
-      '}',
-      '.pytutor-body {',
-      '  display: block;',
-      '}',
-      '.pytutor-desc {',
-      '  margin-top: 8px;',
       '  font-size: 13px;',
       '  line-height: 1.6;',
       '  color: var(--pt-subtext);',
@@ -195,9 +180,6 @@
       '  }',
       '  .pytutor-wrapper iframe {',
       '    max-width: 100%;',
-      '    aspect-ratio: 2.1 / 1;',
-      '    min-height: 380px;',
-      '    max-height: 460px;',
       '  }',
       '}',
       '@media (max-width: 768px) {',
@@ -210,15 +192,11 @@
       '    align-items: flex-start;',
       '    gap: 10px;',
       '  }',
-      '  .pytutor-toolbar .lang-badge,',
-      '  .pytutor-title {',
+      '  .pytutor-toolbar .lang-badge {',
       '    font-size: 16px;',
       '  }',
       '  .pytutor-wrapper iframe {',
       '    max-width: 100%;',
-      '    aspect-ratio: 1.6 / 1;',
-      '    min-height: 340px;',
-      '    max-height: 420px;',
       '    border-radius: 10px;',
       '  }',
       '}',
@@ -226,11 +204,6 @@
       '  .pytutor-wrapper {',
       '    padding: 10px;',
       '    margin: 16px 0 22px;',
-      '  }',
-      '  .pytutor-wrapper iframe {',
-      '    aspect-ratio: 1.35 / 1;',
-      '    min-height: 300px;',
-      '    max-height: 380px;',
       '  }',
       '  .pytutor-toolbar button,',
       '  .pytutor-wrapper .copy-btn {',
@@ -244,10 +217,35 @@
     document.head.appendChild(style);
   }
 
+  function normalizeCode(rawCode) {
+    var code = String(rawCode || '').replace(/\t/g, '    ');
+    var lines = code.split('\n');
+
+    while (lines.length && !lines[0].trim()) lines.shift();
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+
+    var indents = lines
+      .filter(function (line) {
+        return line.trim();
+      })
+      .map(function (line) {
+        var match = line.match(/^(\s*)/);
+        return match ? match[1].length : 0;
+      });
+
+    var minIndent = indents.length ? Math.min.apply(null, indents) : 0;
+
+    return lines
+      .map(function (line) {
+        return line.slice(minIndent);
+      })
+      .join('\n');
+  }
+
   function buildHash(code, langConfig, mergedConfig) {
     var params = Object.assign(
       {
-        code: (code || '').trim(),
+        code: code.trim(),
         py: langConfig.py
       },
       mergedConfig.defaultOptions || {}
@@ -264,6 +262,41 @@
     return mergedConfig.baseEmbedUrl + '#' + buildHash(code, langConfig, mergedConfig);
   }
 
+  function getCodeLineCount(code) {
+    return String(code || '').split('\n').length;
+  }
+
+  function calcIframeHeight(code, mergedConfig) {
+    var ui = mergedConfig.ui || {};
+    var lineCount = getCodeLineCount(code);
+    var baseHeight = Number(ui.baseHeight || DEFAULT_CONFIG.ui.baseHeight);
+    var lineHeight = Number(ui.lineHeight || DEFAULT_CONFIG.ui.lineHeight);
+    var minHeight = Number(ui.minHeight || DEFAULT_CONFIG.ui.minHeight);
+    var maxHeight = Number(ui.maxHeight || DEFAULT_CONFIG.ui.maxHeight);
+    var mobileMinHeight = Number(ui.mobileMinHeight || DEFAULT_CONFIG.ui.mobileMinHeight);
+
+    var height = baseHeight + lineCount * lineHeight;
+
+    var hasLongLine = String(code || '')
+      .split('\n')
+      .some(function (line) {
+        return line.length > 50;
+      });
+
+    if (hasLongLine) {
+      height += 20;
+    }
+
+    height = Math.max(minHeight, height);
+    height = Math.min(maxHeight, height);
+
+    if (window.innerWidth <= 768) {
+      height = Math.max(mobileMinHeight, Math.min(height, maxHeight));
+    }
+
+    return height;
+  }
+
   function createToolbar(langLabel, rawCode, mergedConfig) {
     var toolbar = document.createElement('div');
     toolbar.className = 'pytutor-toolbar';
@@ -273,27 +306,27 @@
     left.textContent = langLabel + ' 可视化';
 
     var right = document.createElement('div');
-    right.style.display = 'flex';
-    right.style.gap = '8px';
+    right.className = 'pytutor-toolbar-right';
 
     var copyBtn = document.createElement('button');
     copyBtn.className = 'copy-btn';
-    copyBtn.type = 'button';
     copyBtn.textContent = mergedConfig.ui.copyButtonText;
 
-    copyBtn.onclick = async function () {
-      try {
-        await navigator.clipboard.writeText(rawCode);
-        copyBtn.textContent = mergedConfig.ui.copiedButtonText;
-        setTimeout(function () {
-          copyBtn.textContent = mergedConfig.ui.copyButtonText;
-        }, 1200);
-      } catch (e) {
-        copyBtn.textContent = mergedConfig.ui.copyFailedText;
-        setTimeout(function () {
-          copyBtn.textContent = mergedConfig.ui.copyButtonText;
-        }, 1200);
-      }
+    copyBtn.onclick = function () {
+      navigator.clipboard
+        .writeText(rawCode)
+        .then(function () {
+          copyBtn.textContent = mergedConfig.ui.copiedButtonText;
+          setTimeout(function () {
+            copyBtn.textContent = mergedConfig.ui.copyButtonText;
+          }, 1200);
+        })
+        .catch(function () {
+          copyBtn.textContent = mergedConfig.ui.copyFailedText;
+          setTimeout(function () {
+            copyBtn.textContent = mergedConfig.ui.copyButtonText;
+          }, 1200);
+        });
     };
 
     right.appendChild(copyBtn);
@@ -301,22 +334,6 @@
     toolbar.appendChild(right);
 
     return toolbar;
-  }
-
-  function applyUiVariables(wrapper, mergedConfig) {
-    wrapper.style.setProperty('--pt-iframe-max-width', mergedConfig.ui.maxWidth || '960px');
-    wrapper.style.setProperty('--pt-iframe-aspect-ratio', mergedConfig.ui.aspectRatio || '2.35 / 1');
-    wrapper.style.setProperty('--pt-iframe-min-height', mergedConfig.ui.minHeight || '400px');
-    wrapper.style.setProperty('--pt-iframe-max-height', mergedConfig.ui.maxHeight || '500px');
-  }
-
-  function createNote(mergedConfig) {
-    if (!mergedConfig.ui.showNote) return null;
-
-    var note = document.createElement('div');
-    note.className = 'pytutor-note';
-    note.textContent = mergedConfig.ui.noteText || '';
-    return note;
   }
 
   function renderOneBlock(pre, langKey, mergedConfig) {
@@ -328,47 +345,52 @@
     var rawCode = codeEl.textContent || '';
     if (!rawCode.trim()) return;
 
+    var normalizedCode = normalizeCode(rawCode);
     var langConfig = mergedConfig.langMap[langKey];
     if (!langConfig) return;
 
     var wrapper = document.createElement('div');
     wrapper.className = 'pytutor-wrapper';
-    applyUiVariables(wrapper, mergedConfig);
 
-    var toolbar = createToolbar(langConfig.label, rawCode, mergedConfig);
+    var toolbar = createToolbar(langConfig.label, normalizedCode, mergedConfig);
 
     var frameContainer = document.createElement('div');
     frameContainer.className = 'pytutor-frame-container';
 
     var iframe = document.createElement('iframe');
-    iframe.src = buildIframeUrl(rawCode, langConfig, mergedConfig);
+    iframe.src = buildIframeUrl(normalizedCode, langConfig, mergedConfig);
     iframe.loading = 'lazy';
     iframe.title = langConfig.label + ' Visualizer';
     iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+    iframe.style.maxWidth = mergedConfig.ui.maxWidth || DEFAULT_CONFIG.ui.maxWidth;
+    iframe.style.height = calcIframeHeight(normalizedCode, mergedConfig) + 'px';
 
     frameContainer.appendChild(iframe);
+
     wrapper.appendChild(toolbar);
     wrapper.appendChild(frameContainer);
 
-    var note = createNote(mergedConfig);
-    if (note) {
+    if (mergedConfig.ui.showNote) {
+      var note = document.createElement('div');
+      note.className = 'pytutor-note';
+      note.textContent = mergedConfig.ui.noteText || '';
       wrapper.appendChild(note);
     }
 
-    pre.dataset.ptRendered = '1';
     pre.replaceWith(wrapper);
+    pre.dataset.ptRendered = '1';
   }
 
   function renderPyTutorBlocks() {
     ensureStyles();
 
-    var container = document.querySelector('#main') || document.querySelector('.content');
+    var mergedConfig = getMergedConfig();
+    var container = document.querySelector('#main');
     if (!container) return;
 
-    var mergedConfig = getDocsifyConfig();
     Object.keys(mergedConfig.langMap).forEach(function (langKey) {
       var blocks = container.querySelectorAll('pre[data-lang="' + langKey + '"]');
-      blocks.forEach(function (pre) {
+      Array.prototype.forEach.call(blocks, function (pre) {
         renderOneBlock(pre, langKey, mergedConfig);
       });
     });
@@ -380,9 +402,11 @@
     });
   }
 
-  window.renderPyTutorBlocks = renderPyTutorBlocks;
-  window.DocsifyPyTutorPlugin = install;
+  if (window.$docsify) {
+    window.$docsify.plugins = [].concat(install, window.$docsify.plugins || []);
+  } else {
+    window.$docsify = { plugins: [install] };
+  }
 
-  var $docsify = window.$docsify || (window.$docsify = {});
-  $docsify.plugins = [].concat(install, $docsify.plugins || []);
+  window.renderPyTutorBlocks = renderPyTutorBlocks;
 })();
