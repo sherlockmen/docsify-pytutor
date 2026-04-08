@@ -950,6 +950,11 @@
     return JSON.parse(trimmed);
   }
 
+  function getPlayableMaxInstruction(trace) {
+    var events = Array.isArray(trace) ? trace : [];
+    return Math.max(0, events.length - 1);
+  }
+
   function fetchTraceMetadata(state) {
     var cacheKey = getTraceCacheKey(state);
     if (traceMetaCache[cacheKey]) {
@@ -975,7 +980,7 @@
       .then(function (payload) {
         var trace = payload && Array.isArray(payload.trace) ? payload.trace : [];
         return {
-          maxInstruction: Math.max(0, trace.length - 1),
+          maxInstruction: getPlayableMaxInstruction(trace),
           traceLength: trace.length
         };
       })
@@ -987,12 +992,12 @@
     return traceMetaCache[cacheKey];
   }
 
-  function rebuildAutoplayFrames(state) {
+  function rebuildAutoplayFrames(state, forceFresh) {
     if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
     if (state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) return;
 
     var currentInstr = clamp(state.currentInstr, 0, state.autoplayConfig.maxInstruction);
-    var currentFrame = getActiveIframe(state);
+    var currentFrame = forceFresh ? null : getActiveIframe(state);
     var nextFrames = [];
     var fragment = document.createDocumentFragment();
 
@@ -1169,6 +1174,13 @@
     }
 
     state.autoplayReady = fullyReady;
+
+    if (fullyReady && state.pendingAutoplayStart) {
+      state.pendingAutoplayStart = false;
+      beginAutoplayPlayback(state);
+      return;
+    }
+
     updateAutoplayButtonState(state);
   }
 
@@ -1193,6 +1205,17 @@
     state.isAutoplaying = false;
     clearAutoplayTimer(state);
     updateAutoplayButtonState(state);
+  }
+
+  function markIframeStateDirty(state) {
+    if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
+
+    if (state.isAutoplaying) {
+      pauseAutoplay(state);
+    }
+
+    state.frameMayBeOutOfSync = true;
+    state.pendingAutoplayStart = false;
   }
 
   function markFrameLoaded(state, instruction) {
@@ -1240,7 +1263,7 @@
     }, delayOverride === undefined ? state.autoplayConfig.interval : delayOverride);
   }
 
-  function startAutoplay(state) {
+  function beginAutoplayPlayback(state) {
     if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
     if (!state.autoplayReady) return;
     if (state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) return;
@@ -1253,6 +1276,29 @@
     updateAutoplayButtonState(state);
 
     scheduleAutoplayAdvance(state, 80);
+  }
+
+  function restartAutoplayFromBeginning(state) {
+    if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
+    if (state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) return;
+
+    pauseAutoplay(state);
+    state.currentInstr = 0;
+    state.frameMayBeOutOfSync = false;
+    state.pendingAutoplayStart = true;
+    rebuildAutoplayFrames(state, true);
+    updateAutoplayButtonState(state);
+  }
+
+  function startAutoplay(state) {
+    if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
+
+    if (state.frameMayBeOutOfSync) {
+      restartAutoplayFromBeginning(state);
+      return;
+    }
+
+    beginAutoplayPlayback(state);
   }
 
   function updateExpandButtonState(state) {
@@ -1538,6 +1584,12 @@
     iframe.addEventListener('load', function () {
       markFrameLoaded(state, instruction);
     });
+    iframe.addEventListener('focus', function () {
+      markIframeStateDirty(state);
+    });
+    iframe.addEventListener('pointerdown', function () {
+      markIframeStateDirty(state);
+    });
     loadInstructionInIframe(state, iframe, instruction, true);
     return iframe;
   }
@@ -1606,6 +1658,8 @@
       isAutoplaying: false,
       autoplayTimer: null,
       readinessTimer: null,
+      pendingAutoplayStart: false,
+      frameMayBeOutOfSync: false,
       userInlineHeight: null,
       userExpandedHeight: null,
       isExpanded: false,
