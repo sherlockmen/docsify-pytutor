@@ -23,10 +23,10 @@
 
 ---
 
-## 在线预览
+## 效果预览
 
-如果你通过 `docsify` 打开本仓库的文档页，下面这些示例会被直接渲染成可交互的可视化面板：
-
+### python代码块效果
+````md
 ```pytutor
 word = "level"
 counts = {}
@@ -36,6 +36,10 @@ for ch in word:
 
 print(counts)
 ```
+````
+![python-step](./images/python-step.gif)
+![python-auto](./images/python-auto.gif)
+
 
 ```pytutor-java
 public class Main {
@@ -71,10 +75,8 @@ https://github.com/sherlockmen/docsify-pytutor
 在`docsify`的`index.html`文件中引用以下CDN地址
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/sherlockmen/docsify-pytutor@v1.0.1/dist/docsify-pytutor.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/sherlockmen/docsify-pytutor@v2.0.0/dist/docsify-pytutor.js"></script>
 ```
-
-如果你还在使用 `@v1.0.0`，是看不到这次界面优化效果的，需要切到新版本 tag。
 
 ### 方式二：本地引用
 
@@ -235,10 +237,6 @@ public class Main {
 }
 ```
 ````
-
-插件会在代码块渲染后自动请求真实执行 trace，并用 trace 长度作为总步数，所以 Python 和 Java 都不需要再手动配置步数。为了减少闪烁，自动播放会在后台先预热可视化帧，按钮在准备阶段会短暂显示“准备中”。
-
-默认高度已经比之前更紧凑；如果你还想继续调节，可以直接拖动右下角拖拽角手动调整外层高度。
 
 ---
 
