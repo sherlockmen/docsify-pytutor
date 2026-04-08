@@ -14,7 +14,7 @@
 - 支持通过 `window.$docsify.pytutor` 进行简单配置
 - 支持本地引用
 - 支持通过 **GitHub + jsDelivr CDN** 直接引用
-- 支持根据代码行数动态计算 iframe 高度，尽量减少内部滚动条
+- 支持根据代码行数、长代码换行情况和容器宽度自适应计算 iframe 高度，尽量减少内部滚动条
 - 自动去除代码块的公共前导缩进，降低 Markdown 缩进带来的报错概率
 
 ---
@@ -87,8 +87,9 @@ https://github.com/sherlockmen/docsify-pytutor
           baseHeight: 420,
           lineHeight: 24,
           minHeight: 420,
-          maxHeight: 900,
-          mobileMinHeight: 360
+          maxHeight: 1400,
+          mobileMinHeight: 420,
+          codeDivMaxHeight: 960
         }
       }
     };
@@ -175,8 +176,9 @@ window.$docsify = {
       baseHeight: 420,
       lineHeight: 24,
       minHeight: 420,
-      maxHeight: 900,
-      mobileMinHeight: 360
+      maxHeight: 1400,
+      mobileMinHeight: 420,
+      codeDivMaxHeight: 960
     }
   }
 }
@@ -216,8 +218,9 @@ window.$docsify = {
 | `baseHeight` | iframe 基础高度 | `420` |
 | `lineHeight` | 每行代码增加的高度 | `24` |
 | `minHeight` | iframe 最小高度 | `420` |
-| `maxHeight` | iframe 最大高度 | `900` |
-| `mobileMinHeight` | 移动端最小高度 | `360` |
+| `maxHeight` | iframe 最大高度 | `1400` |
+| `mobileMinHeight` | 移动端最小高度 | `420` |
+| `codeDivMaxHeight` | Python Tutor 内部代码区最大高度 | `960` |
 
 ---
 

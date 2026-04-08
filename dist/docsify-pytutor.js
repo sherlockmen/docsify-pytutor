@@ -37,8 +37,9 @@
       baseHeight: 420,
       lineHeight: 24,
       minHeight: 420,
-      maxHeight: 900,
-      mobileMinHeight: 360
+      maxHeight: 1400,
+      mobileMinHeight: 420,
+      codeDivMaxHeight: 960
     }
   };
 
@@ -242,13 +243,14 @@
       .join('\n');
   }
 
-  function buildHash(code, langConfig, mergedConfig) {
+  function buildHash(code, langConfig, mergedConfig, runtimeOptions) {
     var params = Object.assign(
       {
         code: code.trim(),
         py: langConfig.py
       },
-      mergedConfig.defaultOptions || {}
+      mergedConfig.defaultOptions || {},
+      runtimeOptions || {}
     );
 
     return Object.keys(params)
@@ -258,43 +260,182 @@
       .join('&');
   }
 
-  function buildIframeUrl(code, langConfig, mergedConfig) {
-    return mergedConfig.baseEmbedUrl + '#' + buildHash(code, langConfig, mergedConfig);
+  function buildIframeUrl(code, langConfig, mergedConfig, runtimeOptions) {
+    return mergedConfig.baseEmbedUrl + '#' + buildHash(code, langConfig, mergedConfig, runtimeOptions);
   }
 
   function getCodeLineCount(code) {
     return String(code || '').split('\n').length;
   }
 
-  function calcIframeHeight(code, mergedConfig) {
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function parsePixelValue(value) {
+    if (typeof value === 'number' && !isNaN(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      var match = value.trim().match(/^(\d+(?:\.\d+)?)px$/i);
+      if (match) {
+        return Number(match[1]);
+      }
+    }
+
+    return null;
+  }
+
+  function getElementWidth(element) {
+    if (!element || typeof element.getBoundingClientRect !== 'function') {
+      return 0;
+    }
+
+    var rect = element.getBoundingClientRect();
+    return rect && rect.width ? Math.round(rect.width) : 0;
+  }
+
+  function getFrameWidth(element, mergedConfig) {
+    var ui = mergedConfig.ui || {};
+    var maxWidth = parsePixelValue(ui.maxWidth || DEFAULT_CONFIG.ui.maxWidth);
+    var elementWidth = getElementWidth(element);
+    var parentWidth = element && element.parentElement ? getElementWidth(element.parentElement) : 0;
+    var container =
+      element && typeof element.closest === 'function'
+        ? element.closest('.markdown-section, #main')
+        : null;
+    var containerWidth = getElementWidth(container);
+    var viewportWidth = window.innerWidth ? Math.max(320, window.innerWidth - 40) : 960;
+    var width = Math.max(elementWidth, parentWidth, containerWidth) || viewportWidth;
+
+    if (maxWidth) {
+      width = Math.min(width, maxWidth);
+    }
+
+    return Math.max(320, Math.round(width));
+  }
+
+  function calcCodeDivWidth(frameWidth) {
+    if (!frameWidth || frameWidth <= 480) {
+      return 280;
+    }
+
+    if (frameWidth <= 760) {
+      return 360;
+    }
+
+    return clamp(Math.round(frameWidth * 0.46), 360, 480);
+  }
+
+  function getLineDisplayWidth(line) {
+    return String(line || '').split('').reduce(function (total, ch) {
+      if (ch === '\t') return total + 4;
+      return total + (/[\u0100-\uffff]/.test(ch) ? 2 : 1);
+    }, 0);
+  }
+
+  function estimateVisualLineCount(code, frameWidth) {
+    var codeDivWidth = calcCodeDivWidth(frameWidth);
+    var wrapColumn = Math.max(20, Math.floor((codeDivWidth - 64) / 8));
+
+    return String(code || '')
+      .split('\n')
+      .reduce(function (total, line) {
+        var displayWidth = getLineDisplayWidth(line);
+        return total + Math.max(1, Math.ceil(Math.max(1, displayWidth) / wrapColumn));
+      }, 0);
+  }
+
+  function calcCodeDivHeight(code, mergedConfig, frameWidth) {
     var ui = mergedConfig.ui || {};
     var lineCount = getCodeLineCount(code);
+    var lineHeight = Number(ui.lineHeight || DEFAULT_CONFIG.ui.lineHeight);
+    var maxHeight = Number(ui.codeDivMaxHeight || DEFAULT_CONFIG.ui.codeDivMaxHeight);
+    var visualLineCount = estimateVisualLineCount(code, frameWidth);
+    var wrappedExtraLines = Math.max(0, visualLineCount - lineCount);
+    var height = 400 + wrappedExtraLines * lineHeight;
+
+    if (frameWidth < 960) {
+      height += 24;
+    }
+
+    if (frameWidth < 760) {
+      height += 48;
+    }
+
+    return clamp(height, 400, maxHeight);
+  }
+
+  function calcIframeHeight(code, mergedConfig, frameWidth) {
+    var ui = mergedConfig.ui || {};
+    var lineCount = getCodeLineCount(code);
+    var visualLineCount = estimateVisualLineCount(code, frameWidth);
+    var wrappedExtraLines = Math.max(0, visualLineCount - lineCount);
     var baseHeight = Number(ui.baseHeight || DEFAULT_CONFIG.ui.baseHeight);
     var lineHeight = Number(ui.lineHeight || DEFAULT_CONFIG.ui.lineHeight);
     var minHeight = Number(ui.minHeight || DEFAULT_CONFIG.ui.minHeight);
     var maxHeight = Number(ui.maxHeight || DEFAULT_CONFIG.ui.maxHeight);
     var mobileMinHeight = Number(ui.mobileMinHeight || DEFAULT_CONFIG.ui.mobileMinHeight);
+    var codeDivHeight = calcCodeDivHeight(code, mergedConfig, frameWidth);
+    var height = baseHeight + lineCount * lineHeight + Math.max(0, codeDivHeight - 400);
 
-    var height = baseHeight + lineCount * lineHeight;
-
-    var hasLongLine = String(code || '')
-      .split('\n')
-      .some(function (line) {
-        return line.length > 50;
-      });
-
-    if (hasLongLine) {
-      height += 20;
+    if (wrappedExtraLines > 0) {
+      height += wrappedExtraLines * Math.max(8, Math.round(lineHeight * 0.65));
     }
 
-    height = Math.max(minHeight, height);
-    height = Math.min(maxHeight, height);
+    if (frameWidth < 960) {
+      height += 32;
+    }
+
+    if (frameWidth < 760) {
+      height += 56;
+    }
+
+    height = clamp(height, minHeight, maxHeight);
 
     if (window.innerWidth <= 768) {
-      height = Math.max(mobileMinHeight, Math.min(height, maxHeight));
+      height = Math.max(mobileMinHeight, clamp(height, mobileMinHeight, maxHeight));
     }
 
     return height;
+  }
+
+  function getRuntimeLayoutOptions(element, code, mergedConfig) {
+    var frameWidth = getFrameWidth(element, mergedConfig);
+
+    return {
+      frameWidth: frameWidth,
+      codeDivWidth: calcCodeDivWidth(frameWidth),
+      codeDivHeight: calcCodeDivHeight(code, mergedConfig, frameWidth),
+      iframeHeight: calcIframeHeight(code, mergedConfig, frameWidth)
+    };
+  }
+
+  function applyResponsiveIframeHeight(wrapper, iframe, code, mergedConfig) {
+    var layout = getRuntimeLayoutOptions(wrapper, code, mergedConfig);
+    iframe.style.height = layout.iframeHeight + 'px';
+  }
+
+  function bindResponsiveIframeHeight(wrapper, iframe, code, mergedConfig) {
+    var resizeObserver = null;
+
+    function updateHeight() {
+      applyResponsiveIframeHeight(wrapper, iframe, code, mergedConfig);
+    }
+
+    updateHeight();
+    iframe.addEventListener('load', updateHeight);
+
+    if (typeof window.ResizeObserver === 'function') {
+      resizeObserver = new ResizeObserver(function () {
+        updateHeight();
+      });
+      resizeObserver.observe(wrapper);
+      wrapper.__ptResizeObserver = resizeObserver;
+    } else {
+      window.addEventListener('resize', updateHeight);
+    }
   }
 
   function createToolbar(langLabel, rawCode, mergedConfig) {
@@ -349,6 +490,8 @@
     var langConfig = mergedConfig.langMap[langKey];
     if (!langConfig) return;
 
+    var layout = getRuntimeLayoutOptions(pre, normalizedCode, mergedConfig);
+
     var wrapper = document.createElement('div');
     wrapper.className = 'pytutor-wrapper';
 
@@ -358,12 +501,20 @@
     frameContainer.className = 'pytutor-frame-container';
 
     var iframe = document.createElement('iframe');
-    iframe.src = buildIframeUrl(normalizedCode, langConfig, mergedConfig);
+    iframe.src = buildIframeUrl(
+      normalizedCode,
+      langConfig,
+      mergedConfig,
+      {
+        codeDivWidth: layout.codeDivWidth,
+        codeDivHeight: layout.codeDivHeight
+      }
+    );
     iframe.loading = 'lazy';
     iframe.title = langConfig.label + ' Visualizer';
     iframe.referrerPolicy = 'strict-origin-when-cross-origin';
     iframe.style.maxWidth = mergedConfig.ui.maxWidth || DEFAULT_CONFIG.ui.maxWidth;
-    iframe.style.height = calcIframeHeight(normalizedCode, mergedConfig) + 'px';
+    iframe.style.height = layout.iframeHeight + 'px';
 
     frameContainer.appendChild(iframe);
 
@@ -379,6 +530,7 @@
 
     pre.replaceWith(wrapper);
     pre.dataset.ptRendered = '1';
+    bindResponsiveIframeHeight(wrapper, iframe, normalizedCode, mergedConfig);
   }
 
   function renderPyTutorBlocks() {
