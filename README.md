@@ -212,39 +212,6 @@ window.$docsify = {
 }
 ```
 
-### 自动播放用法
-
-普通 `pytutor` / `pytutor-java` 写法就可以直接使用自动播放：
-
-````md
-```pytutor
-word = "banana"
-counts = {}
-
-for ch in word:
-    counts[ch] = counts.get(ch, 0) + 1
-
-print(counts)
-```
-
-```pytutor-java
-public class Main {
-    public static void main(String[] args) {
-        int[] nums = {7, 3, 9, 5};
-        int best = nums[0];
-
-        for (int i = 1; i < nums.length; i++) {
-            if (nums[i] > best) {
-                best = nums[i];
-            }
-        }
-
-        System.out.println(best);
-    }
-}
-```
-````
-
 ---
 
 ## License
