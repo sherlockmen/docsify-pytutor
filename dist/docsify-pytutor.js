@@ -6,36 +6,40 @@
   var activeExpandedBlock = null;
   var scrollLockState = null;
   var AUTOPLAY_WARMUP_MS = 650;
+  var INLINE_RESIZE_MIN_HEIGHT = 420;
+  var INLINE_RESIZE_MAX_HEIGHT = 1480;
+  var traceMetaCache = Object.create(null);
 
   var HEIGHT_PRESETS = {
     compact: {
-      targetHeight: 560,
-      minHeight: 520,
-      maxHeight: 900,
-      mobileMinHeight: 480,
-      codeDivBaseHeight: 440,
-      codeDivMaxHeight: 620
+      targetHeight: 500,
+      minHeight: 460,
+      maxHeight: 820,
+      mobileMinHeight: 420,
+      codeDivBaseHeight: 400,
+      codeDivMaxHeight: 560
     },
     comfortable: {
-      targetHeight: 760,
-      minHeight: 680,
-      maxHeight: 1200,
-      mobileMinHeight: 480,
-      codeDivBaseHeight: 520,
-      codeDivMaxHeight: 760
+      targetHeight: 640,
+      minHeight: 560,
+      maxHeight: 1080,
+      mobileMinHeight: 460,
+      codeDivBaseHeight: 460,
+      codeDivMaxHeight: 700
     },
     tall: {
-      targetHeight: 920,
-      minHeight: 820,
-      maxHeight: 1400,
-      mobileMinHeight: 560,
-      codeDivBaseHeight: 620,
-      codeDivMaxHeight: 920
+      targetHeight: 820,
+      minHeight: 700,
+      maxHeight: 1280,
+      mobileMinHeight: 520,
+      codeDivBaseHeight: 560,
+      codeDivMaxHeight: 860
     }
   };
 
   var DEFAULT_CONFIG = {
     baseEmbedUrl: 'https://pythontutor.com/iframe-embed.html',
+    traceProxyUrl: 'https://api.codetabs.com/v1/proxy/?quest=',
     defaultOptions: {
       cumulative: 'false',
       curInstr: '0',
@@ -47,19 +51,22 @@
     langMap: {
       pytutor: {
         label: 'Python',
+        family: 'python',
         py: '3'
       },
       'pytutor-python': {
         label: 'Python',
+        family: 'python',
         py: '3'
       },
       'pytutor-java': {
         label: 'Java',
+        family: 'java',
         py: 'java'
       }
     },
     autoplay: {
-      stepCount: null,
+      enabled: true,
       interval: 900,
       warmupMs: 650,
       preparingButtonText: '准备中',
@@ -78,12 +85,12 @@
       showExpandButton: true,
       expandButtonText: '展开查看',
       collapseButtonText: '退出展开',
-      baseHeight: 760,
+      baseHeight: 640,
       lineHeight: 24,
-      minHeight: 680,
-      maxHeight: 1200,
-      mobileMinHeight: 480,
-      codeDivMaxHeight: 760
+      minHeight: 560,
+      maxHeight: 1080,
+      mobileMinHeight: 460,
+      codeDivMaxHeight: 700
     }
   };
 
@@ -118,13 +125,6 @@
     return isNaN(num) ? fallback : num;
   }
 
-  function toPositiveIntegerOrNull(value) {
-    if (value === null || value === undefined || value === '') return null;
-
-    var num = parseInt(value, 10);
-    return isNaN(num) || num < 1 ? null : num;
-  }
-
   function parsePixelValue(value) {
     if (typeof value === 'number' && !isNaN(value)) {
       return value;
@@ -152,28 +152,55 @@
 
   function parseLangSpec(value, mergedConfig) {
     var langSpec = String(value || '').toLowerCase();
-    var stepsMatch = langSpec.match(/^(pytutor(?:-python|-java)?)-steps-(\d+)$/);
-
-    if (stepsMatch && mergedConfig.langMap[stepsMatch[1]]) {
-      return {
-        langKey: stepsMatch[1],
-        autoplayStepCount: toPositiveIntegerOrNull(stepsMatch[2])
-      };
-    }
 
     if (mergedConfig.langMap[langSpec]) {
       return {
-        langKey: langSpec,
-        autoplayStepCount: null
+        langKey: langSpec
       };
     }
 
     return null;
   }
 
+  function normalizeUserConfig(rawConfig) {
+    if (!isPlainObject(rawConfig)) {
+      return {};
+    }
+
+    var normalized = deepMerge({}, rawConfig);
+
+    if (Object.prototype.hasOwnProperty.call(rawConfig, 'heightPreset')) {
+      normalized.ui = normalized.ui || {};
+      normalized.ui.heightPreset = rawConfig.heightPreset;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(rawConfig, 'maxWidth')) {
+      normalized.ui = normalized.ui || {};
+      normalized.ui.maxWidth = rawConfig.maxWidth;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(rawConfig, 'showExpandButton')) {
+      normalized.ui = normalized.ui || {};
+      normalized.ui.showExpandButton = rawConfig.showExpandButton;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(rawConfig, 'autoplayInterval')) {
+      normalized.autoplay = isPlainObject(normalized.autoplay) ? normalized.autoplay : {};
+      normalized.autoplay.interval = rawConfig.autoplayInterval;
+    }
+
+    if (typeof rawConfig.autoplay === 'boolean') {
+      normalized.autoplay = {
+        enabled: rawConfig.autoplay
+      };
+    }
+
+    return normalized;
+  }
+
   function getMergedConfig() {
     var $docsify = window.$docsify || {};
-    return deepMerge(DEFAULT_CONFIG, $docsify.pytutor || {});
+    return deepMerge(DEFAULT_CONFIG, normalizeUserConfig($docsify.pytutor || {}));
   }
 
   function getEffectiveUiConfig(mergedConfig) {
@@ -203,16 +230,13 @@
     };
   }
 
-  function getEffectiveAutoplayConfig(mergedConfig, autoplayStepCountOverride) {
+  function getEffectiveAutoplayConfig(mergedConfig) {
     var autoplay = mergedConfig.autoplay || {};
-    var stepCount = autoplayStepCountOverride !== null && autoplayStepCountOverride !== undefined
-      ? toPositiveIntegerOrNull(autoplayStepCountOverride)
-      : toPositiveIntegerOrNull(autoplay.stepCount);
+    var enabled = autoplay.enabled !== false;
 
     return {
-      enabled: stepCount !== null,
-      stepCount: stepCount,
-      maxInstruction: stepCount,
+      enabled: enabled,
+      maxInstruction: null,
       interval: clamp(toNumber(autoplay.interval, DEFAULT_CONFIG.autoplay.interval), 300, 5000),
       warmupMs: clamp(toNumber(autoplay.warmupMs, DEFAULT_CONFIG.autoplay.warmupMs), 200, 3000),
       preparingButtonText: autoplay.preparingButtonText || DEFAULT_CONFIG.autoplay.preparingButtonText,
@@ -333,6 +357,9 @@
       '  margin: 0 auto;',
       '  overflow: hidden;',
       '}',
+      '.pytutor-frame-container.is-resizing {',
+      '  cursor: nwse-resize;',
+      '}',
       '.pytutor-wrapper iframe {',
       '  position: absolute;',
       '  inset: 0;',
@@ -362,6 +389,34 @@
       '  opacity: 0.999;',
       '  transform-origin: top left;',
       '  transform: translate3d(calc(100% - 2px), 0, 0) scale(1);',
+      '}',
+      '.pytutor-resize-handle {',
+      '  position: absolute;',
+      '  right: 10px;',
+      '  bottom: 10px;',
+      '  width: 18px;',
+      '  height: 18px;',
+      '  z-index: 5;',
+      '  cursor: nwse-resize;',
+      '  user-select: none;',
+      '  background: transparent;',
+      '}',
+      '.pytutor-resize-handle::before {',
+      '  content: "";',
+      '  position: absolute;',
+      '  inset: 1px;',
+      '  background:',
+      '    linear-gradient(135deg, transparent 0 22%, rgba(148, 163, 184, 0.72) 22% 30%, transparent 30%) 0 0 / 100% 100% no-repeat,',
+      '    linear-gradient(135deg, transparent 0 40%, rgba(148, 163, 184, 0.84) 40% 48%, transparent 48%) 0 0 / 100% 100% no-repeat,',
+      '    linear-gradient(135deg, transparent 0 58%, rgba(148, 163, 184, 0.96) 58% 66%, transparent 66%) 0 0 / 100% 100% no-repeat;',
+      '  opacity: 0.92;',
+      '}',
+      '.pytutor-frame-container:hover .pytutor-resize-handle::before,',
+      '.pytutor-frame-container.is-resizing .pytutor-resize-handle::before {',
+      '  opacity: 1;',
+      '}',
+      '.pytutor-frame-container.is-resizing iframe {',
+      '  pointer-events: none;',
       '}',
       '.pytutor-note {',
       '  margin-top: 12px;',
@@ -675,7 +730,9 @@
       codeDivWidth: codeDivWidth,
       codeDivHeight: codeDivHeight,
       iframeHeight: iframeHeight,
-      layoutHint: verticalStack ? '窄屏时自动切换为纵向布局，减少对象区被压缩。' : '默认使用舒适视图，必要时可一键展开查看。'
+      layoutHint: verticalStack
+        ? '窄屏时会自动切换为纵向布局，可拖动右下角拖拽角调整高度。'
+        : '默认使用更紧凑的舒适视图，可拖动右下角拖拽角调整高度，必要时可一键展开查看。'
     };
   }
 
@@ -831,6 +888,193 @@
     return options;
   }
 
+  function getBackendScriptName(langConfig) {
+    if (!langConfig) return null;
+    if (langConfig.py === 'java') return 'web_exec_java.py';
+    if (langConfig.py === '3') return 'web_exec_py3.py';
+    return null;
+  }
+
+  function getTraceOptionsJson(state) {
+    var defaultOptions = state.mergedConfig.defaultOptions || {};
+    return JSON.stringify({
+      cumulative_mode: String(defaultOptions.cumulative || '').toLowerCase() === 'true',
+      heap_primitives: String(defaultOptions.heapPrimitives || '').toLowerCase() === 'true',
+      show_only_outputs: String(defaultOptions.showOnlyOutputs || '').toLowerCase() === 'true',
+      origin: 'iframe-embed.js'
+    });
+  }
+
+  function buildTraceBackendUrl(state) {
+    var scriptName = getBackendScriptName(state.langConfig);
+    if (!scriptName) return null;
+
+    var params = {
+      user_script: state.code,
+      raw_input_json: '[]',
+      options_json: getTraceOptionsJson(state),
+      n: String(Math.floor(Math.random() * 1000000)),
+      user_uuid: 'docsify-pytutor',
+      session_uuid: 'docsify-pytutor'
+    };
+
+    var query = Object.keys(params).map(function (key) {
+      return key + '=' + encodeURIComponent(params[key]);
+    }).join('&');
+
+    return 'https://pythontutor.com/' + scriptName + '?' + query;
+  }
+
+  function buildTraceLookupUrl(state) {
+    var backendUrl = buildTraceBackendUrl(state);
+    if (!backendUrl) return null;
+
+    var proxyBase = state.mergedConfig.traceProxyUrl || DEFAULT_CONFIG.traceProxyUrl;
+    if (!proxyBase) {
+      return backendUrl;
+    }
+
+    return proxyBase + encodeURIComponent(backendUrl);
+  }
+
+  function getTraceCacheKey(state) {
+    return [state.langConfig.py, state.code].join('::');
+  }
+
+  function parseTraceResponseText(text) {
+    var trimmed = String(text || '').trim();
+    if (!trimmed) {
+      throw new Error('empty trace response');
+    }
+
+    return JSON.parse(trimmed);
+  }
+
+  function fetchTraceMetadata(state) {
+    var cacheKey = getTraceCacheKey(state);
+    if (traceMetaCache[cacheKey]) {
+      return traceMetaCache[cacheKey];
+    }
+
+    var requestUrl = buildTraceLookupUrl(state);
+    if (!requestUrl || typeof window.fetch !== 'function') {
+      return Promise.reject(new Error('trace lookup unavailable'));
+    }
+
+    traceMetaCache[cacheKey] = window.fetch(requestUrl, {
+      method: 'GET',
+      credentials: 'omit'
+    })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error('trace lookup failed with status ' + response.status);
+        }
+        return response.text();
+      })
+      .then(parseTraceResponseText)
+      .then(function (payload) {
+        var trace = payload && Array.isArray(payload.trace) ? payload.trace : [];
+        return {
+          maxInstruction: Math.max(0, trace.length - 1),
+          traceLength: trace.length
+        };
+      })
+      .catch(function (error) {
+        delete traceMetaCache[cacheKey];
+        throw error;
+      });
+
+    return traceMetaCache[cacheKey];
+  }
+
+  function rebuildAutoplayFrames(state) {
+    if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
+    if (state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) return;
+
+    var currentInstr = clamp(state.currentInstr, 0, state.autoplayConfig.maxInstruction);
+    var currentFrame = getActiveIframe(state);
+    var nextFrames = [];
+    var fragment = document.createDocumentFragment();
+
+    state.currentInstr = currentInstr;
+    state.loadedFrameMap = {};
+    state.autoplayReady = false;
+
+    for (var instr = 0; instr <= state.autoplayConfig.maxInstruction; instr += 1) {
+      var frame;
+      if (currentFrame && instr === currentInstr) {
+        frame = currentFrame;
+        frame.dataset.ptInstr = String(instr);
+        state.loadedFrameMap[instr] = Date.now();
+      } else {
+        frame = createVisualizerIframe(state, instr);
+      }
+
+      nextFrames.push(frame);
+      fragment.appendChild(frame);
+    }
+
+    state.iframes.forEach(function (frame) {
+      if (frame !== currentFrame && frame.parentNode === state.frameContainer) {
+        frame.parentNode.removeChild(frame);
+      }
+    });
+
+    if (currentFrame && currentFrame.parentNode === state.frameContainer) {
+      currentFrame.parentNode.removeChild(currentFrame);
+    }
+
+    state.iframes = nextFrames;
+    state.frameContainer.appendChild(fragment);
+    if (state.resizeHandleEl) {
+      state.frameContainer.appendChild(state.resizeHandleEl);
+    }
+    applyFrameDimensions(
+      state,
+      state.frameContainer.style.maxWidth || state.effectiveUi.maxWidth || DEFAULT_CONFIG.ui.maxWidth,
+      state.frameContainer.clientHeight || state.inlineLayout.iframeHeight
+    );
+    updateIframeVisibility(state);
+    evaluateAutoplayReadiness(state);
+    scheduleAutoplayReadinessCheck(state);
+  }
+
+  function initializeAutoplayFromTrace(state) {
+    if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
+    if (state.autoplayConfig.maxInstruction !== null && state.autoplayConfig.maxInstruction !== undefined) return;
+    if (state.traceMetaRequested) return;
+
+    state.traceMetaRequested = true;
+    updateAutoplayButtonState(state);
+
+    fetchTraceMetadata(state)
+      .then(function (meta) {
+        if (!state || !state.wrapper || !document.documentElement.contains(state.wrapper)) {
+          return;
+        }
+
+        state.traceMetaRequested = false;
+        state.autoplayConfig.maxInstruction = meta.maxInstruction;
+
+        if (meta.maxInstruction <= 0) {
+          state.autoplayUnavailable = true;
+          updateAutoplayButtonState(state);
+          return;
+        }
+
+        rebuildAutoplayFrames(state);
+      })
+      .catch(function () {
+        if (!state || !state.wrapper || !document.documentElement.contains(state.wrapper)) {
+          return;
+        }
+
+        state.traceMetaRequested = false;
+        state.autoplayUnavailable = true;
+        updateAutoplayButtonState(state);
+      });
+  }
+
   function loadInstructionInIframe(state, iframe, instruction, forceReload) {
     var baseUrl = forceReload
       ? appendReloadToken(state.mergedConfig.baseEmbedUrl, String(instruction))
@@ -848,7 +1092,7 @@
   function setCurrentInstruction(state, instruction, forceReload) {
     var nextInstruction = Math.max(0, parseInt(instruction, 10) || 0);
 
-    if (state.autoplayConfig && state.autoplayConfig.enabled) {
+    if (state.autoplayConfig && state.autoplayConfig.enabled && state.autoplayConfig.maxInstruction !== null && state.autoplayConfig.maxInstruction !== undefined) {
       nextInstruction = clamp(nextInstruction, 0, state.autoplayConfig.maxInstruction);
     }
 
@@ -872,7 +1116,22 @@
   function updateAutoplayButtonState(state) {
     if (!state.autoplayBtn) return;
 
-    if (!state.autoplayReady) {
+    if (state.autoplayUnavailable) {
+      state.autoplayBtn.style.removeProperty('display');
+      state.autoplayBtn.textContent = '自动播放不可用';
+      state.autoplayBtn.disabled = true;
+      state.autoplayBtn.classList.remove('is-active');
+      return;
+    }
+
+    state.autoplayBtn.style.removeProperty('display');
+
+    if (
+      state.traceMetaRequested ||
+      state.autoplayConfig.maxInstruction === null ||
+      state.autoplayConfig.maxInstruction === undefined ||
+      !state.autoplayReady
+    ) {
       state.autoplayBtn.textContent = state.autoplayConfig.preparingButtonText;
       state.autoplayBtn.disabled = true;
       state.autoplayBtn.classList.remove('is-active');
@@ -890,6 +1149,11 @@
 
   function evaluateAutoplayReadiness(state) {
     if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
+    if (state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) {
+      state.autoplayReady = false;
+      updateAutoplayButtonState(state);
+      return;
+    }
 
     var now = Date.now();
     var warmupMs = state.autoplayConfig.warmupMs || AUTOPLAY_WARMUP_MS;
@@ -910,6 +1174,7 @@
 
   function scheduleAutoplayReadinessCheck(state) {
     if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
+    if (state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) return;
 
     if (state.readinessTimer) {
       clearTimeout(state.readinessTimer);
@@ -934,7 +1199,12 @@
     var index = Math.max(0, parseInt(instruction, 10) || 0);
     state.loadedFrameMap[index] = Date.now();
 
-    if (state.autoplayConfig && state.autoplayConfig.enabled) {
+    if (
+      state.autoplayConfig &&
+      state.autoplayConfig.enabled &&
+      state.autoplayConfig.maxInstruction !== null &&
+      state.autoplayConfig.maxInstruction !== undefined
+    ) {
       evaluateAutoplayReadiness(state);
       if (!state.autoplayReady) {
         scheduleAutoplayReadinessCheck(state);
@@ -946,6 +1216,10 @@
     clearAutoplayTimer(state);
 
     if (!state.isAutoplaying) return;
+    if (state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) {
+      pauseAutoplay(state);
+      return;
+    }
 
     state.autoplayTimer = window.setTimeout(function () {
       if (!state.isAutoplaying) return;
@@ -969,6 +1243,7 @@
   function startAutoplay(state) {
     if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
     if (!state.autoplayReady) return;
+    if (state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) return;
 
     if (state.currentInstr >= state.autoplayConfig.maxInstruction) {
       setCurrentInstruction(state, 0, false);
@@ -990,9 +1265,33 @@
     state.expandBtn.classList.toggle('is-active', state.isExpanded);
   }
 
+  function getFrameResizeBounds(state) {
+    var minHeight = Math.max(INLINE_RESIZE_MIN_HEIGHT, state.effectiveUi.mobileMinHeight || INLINE_RESIZE_MIN_HEIGHT);
+    var viewportMax = state.isExpanded
+      ? Math.max(minHeight, window.innerHeight - 56)
+      : Math.max(minHeight, Math.min(INLINE_RESIZE_MAX_HEIGHT, window.innerHeight ? window.innerHeight - 120 : INLINE_RESIZE_MAX_HEIGHT));
+
+    return {
+      min: minHeight,
+      max: Math.max(minHeight, viewportMax)
+    };
+  }
+
+  function getPreferredFrameHeight(state, autoHeightPx) {
+    var bounds = getFrameResizeBounds(state);
+    var storedHeight = state.isExpanded ? state.userExpandedHeight : state.userInlineHeight;
+    var desiredHeight = storedHeight !== null && storedHeight !== undefined ? storedHeight : autoHeightPx;
+    return clamp(Math.round(desiredHeight), bounds.min, bounds.max);
+  }
+
   function applyFrameDimensions(state, maxWidthValue, heightPx) {
+    var bounds = getFrameResizeBounds(state);
+    var safeHeight = clamp(Math.round(heightPx), bounds.min, bounds.max);
+
     state.frameContainer.style.maxWidth = maxWidthValue || DEFAULT_CONFIG.ui.maxWidth;
-    state.frameContainer.style.height = heightPx + 'px';
+    state.frameContainer.style.minHeight = bounds.min + 'px';
+    state.frameContainer.style.maxHeight = bounds.max + 'px';
+    state.frameContainer.style.height = safeHeight + 'px';
 
     state.iframes.forEach(function (iframe) {
       iframe.style.maxWidth = 'none';
@@ -1011,7 +1310,11 @@
   function applyInlineLayout(state) {
     state.inlineLayout = getInlineLayout(state.wrapper, state.code, state.mergedConfig);
     state.effectiveUi = state.inlineLayout.effectiveUi;
-    applyFrameDimensions(state, state.effectiveUi.maxWidth || DEFAULT_CONFIG.ui.maxWidth, state.inlineLayout.iframeHeight);
+    applyFrameDimensions(
+      state,
+      state.effectiveUi.maxWidth || DEFAULT_CONFIG.ui.maxWidth,
+      getPreferredFrameHeight(state, state.inlineLayout.iframeHeight)
+    );
     state.wrapper.style.removeProperty('--pt-expanded-frame-height');
     state.wrapper.classList.remove('is-expanded');
     setToolbarHint(state);
@@ -1033,7 +1336,7 @@
   function applyExpandedLayout(state) {
     state.wrapper.classList.add('is-expanded');
 
-    var expandedHeight = calcExpandedIframeHeight(state);
+    var expandedHeight = getPreferredFrameHeight(state, calcExpandedIframeHeight(state));
     state.wrapper.style.setProperty('--pt-expanded-frame-height', expandedHeight + 'px');
     applyFrameDimensions(state, 'none', expandedHeight);
     setToolbarHint(state);
@@ -1049,6 +1352,56 @@
     } else {
       applyInlineLayout(state);
     }
+  }
+
+  function createResizeHandle() {
+    var handle = document.createElement('div');
+    handle.className = 'pytutor-resize-handle';
+    handle.setAttribute('role', 'presentation');
+    handle.title = '拖动右下角调整高度';
+    return handle;
+  }
+
+  function bindResizeHandle(state) {
+    if (!state || !state.resizeHandleEl) return;
+
+    state.resizeHandleEl.addEventListener('mousedown', function (event) {
+      event.preventDefault();
+
+      var startY = event.clientY;
+      var startHeight = state.frameContainer.getBoundingClientRect().height;
+
+      state.frameContainer.classList.add('is-resizing');
+      document.body.style.userSelect = 'none';
+
+      function onMouseMove(moveEvent) {
+        var bounds = getFrameResizeBounds(state);
+        var nextHeight = clamp(startHeight + (moveEvent.clientY - startY), bounds.min, bounds.max);
+
+        if (state.isExpanded) {
+          state.userExpandedHeight = nextHeight;
+          state.wrapper.style.setProperty('--pt-expanded-frame-height', nextHeight + 'px');
+        } else {
+          state.userInlineHeight = nextHeight;
+        }
+
+        applyFrameDimensions(
+          state,
+          state.isExpanded ? 'none' : (state.effectiveUi.maxWidth || DEFAULT_CONFIG.ui.maxWidth),
+          nextHeight
+        );
+      }
+
+      function onMouseUp() {
+        state.frameContainer.classList.remove('is-resizing');
+        document.body.style.userSelect = '';
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+      }
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    });
   }
 
   function createBackdrop(state) {
@@ -1203,7 +1556,7 @@
     if (!langConfig) return;
 
     var inlineLayout = getInlineLayout(pre, normalizedCode, mergedConfig);
-    var autoplayConfig = getEffectiveAutoplayConfig(mergedConfig, langSpec.autoplayStepCount);
+    var autoplayConfig = getEffectiveAutoplayConfig(mergedConfig);
     var initialInstr = Math.max(0, toNumber((mergedConfig.defaultOptions || {}).curInstr, 0));
     var toolbarBits = createToolbar(langConfig.label, normalizedCode, inlineLayout.effectiveUi, autoplayConfig);
 
@@ -1212,6 +1565,7 @@
 
     var frameContainer = document.createElement('div');
     frameContainer.className = 'pytutor-frame-container';
+    var resizeHandleEl = createResizeHandle();
 
     wrapper.appendChild(toolbarBits.toolbar);
     wrapper.appendChild(frameContainer);
@@ -1242,13 +1596,18 @@
       hintEl: toolbarBits.hint,
       autoplayBtn: toolbarBits.autoplayBtn,
       expandBtn: toolbarBits.expandBtn,
+      resizeHandleEl: resizeHandleEl,
       noteEl: noteEl,
       currentInstr: initialInstr,
       loadedFrameMap: {},
       autoplayReady: autoplayConfig.enabled ? false : true,
+      autoplayUnavailable: autoplayConfig.enabled ? false : true,
+      traceMetaRequested: false,
       isAutoplaying: false,
       autoplayTimer: null,
       readinessTimer: null,
+      userInlineHeight: null,
+      userExpandedHeight: null,
       isExpanded: false,
       boundResize: null,
       resizeObserver: null,
@@ -1259,21 +1618,27 @@
       boundKeydown: null
     };
 
-    if (state.autoplayConfig.enabled) {
+    if (
+      state.autoplayConfig.enabled &&
+      state.autoplayConfig.maxInstruction !== null &&
+      state.autoplayConfig.maxInstruction !== undefined
+    ) {
       for (var instr = 0; instr <= state.autoplayConfig.maxInstruction; instr += 1) {
         state.iframes.push(createVisualizerIframe(state, instr));
       }
     } else {
       state.iframes.push(createVisualizerIframe(state, initialInstr));
-      state.loadedFrameMap[initialInstr] = Date.now();
     }
 
     state.iframes.forEach(function (frame) {
       frameContainer.appendChild(frame);
     });
+    frameContainer.appendChild(resizeHandleEl);
 
     updateIframeVisibility(state);
     updateAutoplayButtonState(state);
+    initializeAutoplayFromTrace(state);
+    bindResizeHandle(state);
 
     if (state.expandBtn) {
       state.expandBtn.addEventListener('click', function () {
