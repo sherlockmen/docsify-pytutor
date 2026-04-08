@@ -37,10 +37,12 @@ for ch in word:
 print(counts)
 ```
 ````
+#### python步骤执行
 ![python-step](./images/python-step.gif)
+#### python自动执行
 ![python-auto](./images/python-auto.gif)
 
-
+````md
 ```pytutor-java
 public class Main {
     public static void main(String[] args) {
@@ -57,6 +59,11 @@ public class Main {
     }
 }
 ```
+````
+#### java步骤执行
+![python-step](./images/java-step.gif)
+#### java自动执行
+![python-auto](./images/java-auto.gif)
 
 ---
 
