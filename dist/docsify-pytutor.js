@@ -5,7 +5,12 @@
   var renderedBlocks = [];
   var activeExpandedBlock = null;
   var scrollLockState = null;
-  var AUTOPLAY_WARMUP_MS = 650;
+  var AUTOPLAY_WARMUP_MS = 900;
+  var AUTOPLAY_FIRST_ADVANCE_DELAY = 180;
+  var AUTOPLAY_SWITCH_MASK_DELAY = 160;
+  var AUTOPLAY_FINAL_SETTLE_DELAY = 220;
+  var MANUAL_INTERACTION_SETTLE_MS = 260;
+  var MANUAL_SWITCH_SETTLE_DELAY = 140;
   var INLINE_RESIZE_MIN_HEIGHT = 420;
   var INLINE_RESIZE_MAX_HEIGHT = 1480;
   var traceMetaCache = Object.create(null);
@@ -68,7 +73,7 @@
     autoplay: {
       enabled: true,
       interval: 900,
-      warmupMs: 650,
+      warmupMs: 900,
       preparingButtonText: '准备中',
       startButtonText: '开始',
       pauseButtonText: '暂停'
@@ -378,17 +383,26 @@
       '  will-change: transform, opacity;',
       '}',
       '.pytutor-wrapper iframe.pt-frame-active {',
-      '  pointer-events: auto;',
+      '  z-index: 3;',
+      '  opacity: 1;',
+      '  transform: translate3d(0, 0, 0) scale(1);',
+      '}',
+      '.pytutor-wrapper iframe.pt-frame-prewarm {',
       '  z-index: 2;',
+      '  opacity: 1;',
+      '  transform-origin: top left;',
+      '  transform: translate3d(calc(100% - 2px), 0, 0) scale(1);',
+      '}',
+      '.pytutor-wrapper iframe.pt-frame-cover {',
+      '  z-index: 4;',
       '  opacity: 1;',
       '  transform: translate3d(0, 0, 0) scale(1);',
       '}',
       '.pytutor-wrapper iframe.pt-frame-standby {',
-      '  pointer-events: none;',
-      '  z-index: 3;',
-      '  opacity: 0.999;',
+      '  z-index: 1;',
+      '  opacity: 0.001;',
       '  transform-origin: top left;',
-      '  transform: translate3d(calc(100% - 2px), 0, 0) scale(1);',
+      '  transform: translate3d(140%, 0, 0) scale(1);',
       '}',
       '.pytutor-resize-handle {',
       '  position: absolute;',
@@ -567,26 +581,206 @@
     return baseUrl + '#' + buildHash(code, langConfig, mergedConfig, runtimeOptions);
   }
 
-  function getFrameIndexForInstruction(state, instruction) {
-    if (state.autoplayConfig && state.autoplayConfig.enabled && state.iframes.length > 1) {
-      return clamp(Math.max(0, parseInt(instruction, 10) || 0), 0, state.iframes.length - 1);
-    }
-
-    return 0;
+  function getAutoplayFrameIndexForInstruction(state, instruction) {
+    if (!state || !state.iframes || !state.iframes.length) return 0;
+    return clamp(Math.max(0, parseInt(instruction, 10) || 0), 0, state.iframes.length - 1);
   }
 
-  function getActiveIframe(state) {
-    return state.iframes[getFrameIndexForInstruction(state, state.currentInstr)];
+  function getAutoplayActiveIframe(state) {
+    return state.iframes[getAutoplayFrameIndexForInstruction(state, state.currentInstr)];
+  }
+
+  function getAllIframes(state) {
+    var frames = [];
+
+    if (state && state.manualIframe) {
+      frames.push(state.manualIframe);
+    }
+
+    return frames.concat(state && state.iframes ? state.iframes : []);
+  }
+
+  function getManualInstructionBase(state) {
+    if (!state || !state.autoplayConfig || state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) {
+      return 0;
+    }
+
+    var base = state.manualViewKnown
+      ? state.manualViewInstr
+      : state.currentInstr;
+
+    return clamp(Math.max(0, parseInt(base, 10) || 0), 0, state.autoplayConfig.maxInstruction);
+  }
+
+  function predictManualInstructionFromPointer(state, iframe, event) {
+    if (!state || !iframe || !event) return null;
+    if (!state.autoplayConfig || state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) {
+      return null;
+    }
+
+    var rect = iframe.getBoundingClientRect();
+    if (!rect || !rect.width || !rect.height) return null;
+
+    var x = event.clientX - rect.left;
+    var y = event.clientY - rect.top;
+    var width = rect.width;
+    var height = rect.height;
+    var maxInstruction = state.autoplayConfig.maxInstruction;
+    var baseInstruction = getManualInstructionBase(state);
+    var controlsTop = height * 0.76;
+    var controlsBottom = height * 0.94;
+
+    if (y < controlsTop || y > controlsBottom) {
+      return null;
+    }
+
+    if (x >= width * 0.26 && x <= width * 0.37) {
+      return 0;
+    }
+
+    if (x >= width * 0.37 && x <= width * 0.47) {
+      return clamp(baseInstruction - 1, 0, maxInstruction);
+    }
+
+    if (x >= width * 0.47 && x <= width * 0.57) {
+      return clamp(baseInstruction + 1, 0, maxInstruction);
+    }
+
+    if (x >= width * 0.57 && x <= width * 0.69) {
+      return maxInstruction;
+    }
+
+    return null;
+  }
+
+  function handleManualIframePointerDown(state, iframe, event) {
+    if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
+
+    state.pendingAutoplayStart = false;
+
+    var predictedInstruction = predictManualInstructionFromPointer(state, iframe, event);
+    if (predictedInstruction === null || predictedInstruction === undefined) {
+      state.manualViewKnown = false;
+      markManualInteractionPending(state);
+      return;
+    }
+
+    state.manualViewKnown = true;
+    state.manualViewInstr = predictedInstruction;
+    state.currentInstr = predictedInstruction;
+    markManualInteractionPending(state);
+    updateIframeVisibility(state);
+  }
+
+  function getManualInteractionSettleMs(state) {
+    var delay = MANUAL_INTERACTION_SETTLE_MS;
+
+    if (state && state.langConfig && state.langConfig.family === 'java') {
+      delay += 80;
+    }
+
+    return delay;
+  }
+
+  function clearManualInteractionTimer(state) {
+    if (!state || !state.manualInteractionTimer) return;
+    clearTimeout(state.manualInteractionTimer);
+    state.manualInteractionTimer = null;
+  }
+
+  function finishManualInteractionPending(state) {
+    if (!state) return;
+
+    clearManualInteractionTimer(state);
+    state.manualInteractionPending = false;
+
+    if (state.pendingManualAutoplay) {
+      state.pendingManualAutoplay = false;
+      startAutoplay(state);
+      return;
+    }
+
+    updateAutoplayButtonState(state);
+  }
+
+  function markManualInteractionPending(state) {
+    if (!state) return;
+
+    clearManualInteractionTimer(state);
+    state.manualInteractionPending = true;
+    state.pendingManualAutoplay = false;
+    updateAutoplayButtonState(state);
+
+    state.manualInteractionTimer = window.setTimeout(function () {
+      if (!state.wrapper || !document.documentElement.contains(state.wrapper)) return;
+      finishManualInteractionPending(state);
+    }, getManualInteractionSettleMs(state));
+  }
+
+  function ensureManualIframeTracking(state, iframe) {
+    if (!state || !iframe || iframe.dataset.ptManualBound === '1') return;
+
+    iframe.dataset.ptManualBound = '1';
+    iframe.addEventListener('pointerdown', function (event) {
+      handleManualIframePointerDown(state, iframe, event);
+    });
+  }
+
+  function getAutoplayPrewarmIndex(state) {
+    if (!state || !state.iframes || !state.iframes.length) return null;
+
+    if (state.displayMode === 'autoplay') {
+      if (!state.isAutoplaying) return null;
+      return clamp(state.activeIframeIndex + 1, 0, state.iframes.length - 1);
+    }
+
+    var startInstruction = getAutoplayStartInstruction(state);
+    var immediateSwitchInstruction = startInstruction;
+
+    if (state.manualViewKnown && state.manualViewInstr === startInstruction) {
+      immediateSwitchInstruction = clamp(startInstruction + 1, 0, state.iframes.length - 1);
+    }
+
+    if (immediateSwitchInstruction < 0 || immediateSwitchInstruction >= state.iframes.length) {
+      return null;
+    }
+
+    return immediateSwitchInstruction;
   }
 
   function updateIframeVisibility(state) {
-    state.activeIframeIndex = getFrameIndexForInstruction(state, state.currentInstr);
+    if (!state) return;
+
+    state.activeIframeIndex = getAutoplayFrameIndexForInstruction(state, state.currentInstr);
+    var prewarmIndex = getAutoplayPrewarmIndex(state);
+
+    if (prewarmIndex !== null && prewarmIndex !== undefined) {
+      if (prewarmIndex < 0 || prewarmIndex >= state.iframes.length) {
+        prewarmIndex = null;
+      }
+    }
+
+    if (state.manualIframe) {
+      var manualCover = state.coverFrame === state.manualIframe;
+      var manualActive = state.displayMode !== 'autoplay';
+      state.manualIframe.classList.toggle('pt-frame-cover', manualCover);
+      state.manualIframe.classList.toggle('pt-frame-active', manualActive || manualCover);
+      state.manualIframe.classList.remove('pt-frame-prewarm');
+      state.manualIframe.classList.toggle('pt-frame-standby', !manualActive && !manualCover);
+      state.manualIframe.tabIndex = manualActive && !manualCover ? 0 : -1;
+      state.manualIframe.style.pointerEvents = manualActive && !manualCover ? 'auto' : 'none';
+    }
 
     state.iframes.forEach(function (iframe, index) {
-      var isActive = index === state.activeIframeIndex;
-      iframe.classList.toggle('pt-frame-active', isActive);
-      iframe.classList.toggle('pt-frame-standby', !isActive);
-      iframe.tabIndex = isActive ? 0 : -1;
+      var isActive = state.displayMode === 'autoplay' && index === state.activeIframeIndex;
+      var isPrewarm = prewarmIndex !== null && prewarmIndex !== undefined && index === prewarmIndex && !isActive;
+      var isCover = state.coverFrame === iframe;
+      iframe.classList.toggle('pt-frame-cover', isCover);
+      iframe.classList.toggle('pt-frame-active', isActive || isCover);
+      iframe.classList.toggle('pt-frame-prewarm', isPrewarm);
+      iframe.classList.toggle('pt-frame-standby', !isActive && !isPrewarm && !isCover);
+      iframe.tabIndex = isActive && state.isAutoplaying && !isCover ? 0 : -1;
+      iframe.style.pointerEvents = isActive && state.isAutoplaying && !isCover ? 'auto' : 'none';
     });
   }
 
@@ -996,41 +1190,33 @@
     if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
     if (state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) return;
 
-    var currentInstr = clamp(state.currentInstr, 0, state.autoplayConfig.maxInstruction);
-    var currentFrame = forceFresh ? null : getActiveIframe(state);
     var nextFrames = [];
     var fragment = document.createDocumentFragment();
 
-    state.currentInstr = currentInstr;
     state.loadedFrameMap = {};
     state.autoplayReady = false;
 
     for (var instr = 0; instr <= state.autoplayConfig.maxInstruction; instr += 1) {
-      var frame;
-      if (currentFrame && instr === currentInstr) {
-        frame = currentFrame;
-        frame.dataset.ptInstr = String(instr);
-        state.loadedFrameMap[instr] = Date.now();
-      } else {
-        frame = createVisualizerIframe(state, instr);
-      }
-
+      var frame = createVisualizerIframe(state, instr, 'autoplay');
       nextFrames.push(frame);
       fragment.appendChild(frame);
     }
 
     state.iframes.forEach(function (frame) {
-      if (frame !== currentFrame && frame.parentNode === state.frameContainer) {
+      if (frame.parentNode === state.frameContainer) {
         frame.parentNode.removeChild(frame);
       }
     });
 
-    if (currentFrame && currentFrame.parentNode === state.frameContainer) {
-      currentFrame.parentNode.removeChild(currentFrame);
+    if (fragment.childNodes.length) {
+      if (state.resizeHandleEl && state.resizeHandleEl.parentNode === state.frameContainer) {
+        state.frameContainer.insertBefore(fragment, state.resizeHandleEl);
+      } else {
+        state.frameContainer.appendChild(fragment);
+      }
     }
 
     state.iframes = nextFrames;
-    state.frameContainer.appendChild(fragment);
     if (state.resizeHandleEl) {
       state.frameContainer.appendChild(state.resizeHandleEl);
     }
@@ -1042,6 +1228,45 @@
     updateIframeVisibility(state);
     evaluateAutoplayReadiness(state);
     scheduleAutoplayReadinessCheck(state);
+  }
+
+  function getAutoplayFrameWarmupMs(state, instruction) {
+    var warmupMs = state && state.autoplayConfig
+      ? (state.autoplayConfig.warmupMs || AUTOPLAY_WARMUP_MS)
+      : AUTOPLAY_WARMUP_MS;
+
+    if (state && state.langConfig && state.langConfig.family === 'java') {
+      warmupMs += 250;
+    }
+
+    if (instruction === 0) {
+      warmupMs += 120;
+    }
+
+    if (
+      state &&
+      state.autoplayConfig &&
+      state.autoplayConfig.maxInstruction !== null &&
+      state.autoplayConfig.maxInstruction !== undefined &&
+      instruction === state.autoplayConfig.maxInstruction
+    ) {
+      warmupMs += 700;
+    }
+
+    return warmupMs;
+  }
+
+  function getAutoplayReadinessDelay(state) {
+    if (
+      !state ||
+      !state.autoplayConfig ||
+      state.autoplayConfig.maxInstruction === null ||
+      state.autoplayConfig.maxInstruction === undefined
+    ) {
+      return AUTOPLAY_WARMUP_MS;
+    }
+
+    return getAutoplayFrameWarmupMs(state, state.autoplayConfig.maxInstruction);
   }
 
   function initializeAutoplayFromTrace(state) {
@@ -1103,12 +1328,16 @@
 
     state.currentInstr = nextInstruction;
 
-    if (state.autoplayConfig && state.autoplayConfig.enabled && state.iframes.length > 1) {
+    if (state.displayMode === 'autoplay' && state.autoplayConfig && state.autoplayConfig.enabled && state.iframes.length > 0) {
       updateIframeVisibility(state);
       return;
     }
 
-    loadInstructionInIframe(state, getActiveIframe(state), state.currentInstr, forceReload);
+    if (state.manualIframe) {
+      state.manualViewInstr = state.currentInstr;
+      state.manualViewKnown = true;
+      loadInstructionInIframe(state, state.manualIframe, state.currentInstr, forceReload);
+    }
   }
 
   function clearAutoplayTimer(state) {
@@ -1116,6 +1345,13 @@
       clearTimeout(state.autoplayTimer);
       state.autoplayTimer = null;
     }
+
+    if (state.autoplayStartTimer) {
+      clearTimeout(state.autoplayStartTimer);
+      state.autoplayStartTimer = null;
+    }
+
+    clearAutoplayPoolRefreshTimer(state);
   }
 
   function updateAutoplayButtonState(state) {
@@ -1130,6 +1366,13 @@
     }
 
     state.autoplayBtn.style.removeProperty('display');
+
+    if (state.manualInteractionPending && !state.isAutoplaying) {
+      state.autoplayBtn.textContent = state.autoplayConfig.preparingButtonText;
+      state.autoplayBtn.disabled = true;
+      state.autoplayBtn.classList.remove('is-active');
+      return;
+    }
 
     if (
       state.traceMetaRequested ||
@@ -1161,11 +1404,11 @@
     }
 
     var now = Date.now();
-    var warmupMs = state.autoplayConfig.warmupMs || AUTOPLAY_WARMUP_MS;
     var fullyReady = true;
 
     for (var i = 0; i <= state.autoplayConfig.maxInstruction; i += 1) {
       var loadedAt = state.loadedFrameMap[i];
+      var warmupMs = getAutoplayFrameWarmupMs(state, i);
 
       if (!loadedAt || (now - loadedAt) < warmupMs) {
         fullyReady = false;
@@ -1196,25 +1439,180 @@
     state.readinessTimer = window.setTimeout(function () {
       state.readinessTimer = null;
       evaluateAutoplayReadiness(state);
-    }, Math.max(120, state.autoplayConfig.warmupMs || AUTOPLAY_WARMUP_MS));
+    }, Math.max(160, getAutoplayReadinessDelay(state)));
+  }
+
+  function clearManualSyncTimer(state) {
+    if (!state || !state.manualSyncTimer) return;
+    clearTimeout(state.manualSyncTimer);
+    state.manualSyncTimer = null;
+  }
+
+  function clearCoverFrame(state) {
+    if (!state) return;
+
+    if (state.coverTimer) {
+      clearTimeout(state.coverTimer);
+      state.coverTimer = null;
+    }
+
+    if (state.coverFrame) {
+      state.coverFrame = null;
+      updateIframeVisibility(state);
+    }
+  }
+
+  function getAutoplayCoverDelay(state, frame) {
+    var delay = AUTOPLAY_SWITCH_MASK_DELAY;
+
+    if (frame && frame.dataset && frame.dataset.ptRole === 'manual') {
+      delay += 180;
+    }
+
+    if (state && state.langConfig && state.langConfig.family === 'java') {
+      delay += 80;
+    }
+
+    if (state && state.autoplayConfig && state.autoplayConfig.interval) {
+      delay = Math.min(delay, Math.max(220, state.autoplayConfig.interval - 240));
+    }
+
+    return delay;
+  }
+
+  function holdFrameAsCover(state, frame, delayOverride) {
+    if (!state || !frame) return;
+
+    clearCoverFrame(state);
+    state.coverFrame = frame;
+    updateIframeVisibility(state);
+    var coverDelay = delayOverride === undefined ? getAutoplayCoverDelay(state, frame) : delayOverride;
+    state.coverTimer = window.setTimeout(function () {
+      state.coverTimer = null;
+      if (!state.wrapper || !document.documentElement.contains(state.wrapper)) return;
+      if (state.coverFrame !== frame) return;
+      state.coverFrame = null;
+      updateIframeVisibility(state);
+    }, coverDelay);
+  }
+
+  function clearAutoplayPoolRefreshTimer(state) {
+    if (!state || !state.autoplayPoolRefreshTimer) return;
+    clearTimeout(state.autoplayPoolRefreshTimer);
+    state.autoplayPoolRefreshTimer = null;
+  }
+
+  function scheduleAutoplayPoolRefresh(state) {
+    if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
+    if (state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) return;
+
+    clearAutoplayPoolRefreshTimer(state);
+    state.autoplayReady = false;
+    updateAutoplayButtonState(state);
+    state.autoplayPoolRefreshTimer = window.setTimeout(function () {
+      state.autoplayPoolRefreshTimer = null;
+      if (!state.wrapper || !document.documentElement.contains(state.wrapper)) return;
+      rebuildAutoplayFrames(state);
+    }, 16);
+  }
+
+  function adoptActiveAutoplayFrameAsManual(state) {
+    if (!state || state.displayMode !== 'autoplay') return false;
+
+    var activeFrame = getAutoplayActiveIframe(state);
+    if (!activeFrame) return false;
+
+    clearManualSyncTimer(state);
+    state.manualSyncToken = null;
+    ensureManualIframeTracking(state, activeFrame);
+
+    if (
+      state.manualIframe &&
+      state.manualIframe !== activeFrame &&
+      state.manualIframe.parentNode === state.frameContainer
+    ) {
+      state.manualIframe.parentNode.removeChild(state.manualIframe);
+    }
+
+    activeFrame.dataset.ptRole = 'manual';
+    state.manualIframe = activeFrame;
+    state.iframes = state.iframes.filter(function (frame) {
+      return frame !== activeFrame;
+    });
+    state.manualViewInstr = state.currentInstr;
+    state.manualViewKnown = true;
+    state.displayMode = 'manual';
+    updateIframeVisibility(state);
+    scheduleAutoplayPoolRefresh(state);
+    return true;
+  }
+
+  function syncManualIframeToInstruction(state, instruction, forceReload) {
+    if (!state || !state.manualIframe) return;
+
+    var nextInstruction = Math.max(0, parseInt(instruction, 10) || 0);
+    if (state.autoplayConfig && state.autoplayConfig.maxInstruction !== null && state.autoplayConfig.maxInstruction !== undefined) {
+      nextInstruction = clamp(nextInstruction, 0, state.autoplayConfig.maxInstruction);
+    }
+
+    state.manualViewInstr = nextInstruction;
+    state.manualViewKnown = true;
+
+    if (forceReload === false && state.displayMode === 'manual') {
+      updateIframeVisibility(state);
+      return;
+    }
+
+    clearManualSyncTimer(state);
+    state.manualSyncToken = String(Date.now()) + ':' + Math.random();
+    var token = state.manualSyncToken;
+
+    function activateManualView() {
+      if (!state.wrapper || !document.documentElement.contains(state.wrapper)) return;
+      if (state.manualSyncToken !== token) return;
+
+      state.displayMode = 'manual';
+      state.manualSyncToken = null;
+      updateIframeVisibility(state);
+      updateAutoplayButtonState(state);
+    }
+
+    var onLoad = function () {
+      state.manualIframe.removeEventListener('load', onLoad);
+      clearManualSyncTimer(state);
+      state.manualSyncTimer = window.setTimeout(function () {
+        state.manualSyncTimer = null;
+        activateManualView();
+      }, MANUAL_SWITCH_SETTLE_DELAY);
+    };
+
+    state.manualIframe.addEventListener('load', onLoad);
+    loadInstructionInIframe(state, state.manualIframe, nextInstruction, forceReload !== false);
   }
 
   function pauseAutoplay(state) {
     if (!state) return;
 
     state.isAutoplaying = false;
+    state.pendingAutoplayStart = false;
+    state.pendingManualAutoplay = false;
     clearAutoplayTimer(state);
+    clearCoverFrame(state);
+
+    if (state.displayMode === 'autoplay') {
+      if (!adoptActiveAutoplayFrameAsManual(state)) {
+        state.displayMode = 'manual';
+      }
+    }
+
+    updateIframeVisibility(state);
     updateAutoplayButtonState(state);
   }
 
   function markIframeStateDirty(state) {
     if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
 
-    if (state.isAutoplaying) {
-      pauseAutoplay(state);
-    }
-
-    state.frameMayBeOutOfSync = true;
+    state.manualViewKnown = false;
     state.pendingAutoplayStart = false;
   }
 
@@ -1252,10 +1650,23 @@
         return;
       }
 
-      setCurrentInstruction(state, state.currentInstr + 1, false);
+      var previousFrame = state.displayMode === 'autoplay'
+        ? getAutoplayActiveIframe(state)
+        : state.manualIframe;
+
+      state.currentInstr = clamp(state.currentInstr + 1, 0, state.autoplayConfig.maxInstruction);
+      state.displayMode = 'autoplay';
+      updateIframeVisibility(state);
+
+      var nextFrame = getAutoplayActiveIframe(state);
+      if (previousFrame && nextFrame && previousFrame !== nextFrame) {
+        holdFrameAsCover(state, previousFrame);
+      }
 
       if (state.currentInstr >= state.autoplayConfig.maxInstruction) {
-        pauseAutoplay(state);
+        state.autoplayTimer = window.setTimeout(function () {
+          pauseAutoplay(state);
+        }, AUTOPLAY_FINAL_SETTLE_DELAY);
         return;
       }
 
@@ -1268,37 +1679,87 @@
     if (!state.autoplayReady) return;
     if (state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) return;
 
+    state.pendingAutoplayStart = false;
+    state.pendingManualAutoplay = false;
+    state.manualInteractionPending = false;
+    state.manualSyncToken = null;
+    clearManualSyncTimer(state);
+    clearManualInteractionTimer(state);
+    clearCoverFrame(state);
+
     if (state.currentInstr >= state.autoplayConfig.maxInstruction) {
-      setCurrentInstruction(state, 0, false);
+      state.currentInstr = 0;
     }
 
+    var previousFrame = state.displayMode === 'autoplay'
+      ? getAutoplayActiveIframe(state)
+      : state.manualIframe;
+
     state.isAutoplaying = true;
+    if (state.manualViewKnown && state.manualViewInstr === state.currentInstr) {
+      state.displayMode = 'manual';
+    } else {
+      state.displayMode = 'autoplay';
+    }
+    updateIframeVisibility(state);
+
+    var nextFrame = state.displayMode === 'autoplay' ? getAutoplayActiveIframe(state) : state.manualIframe;
+    if (state.displayMode === 'autoplay' && previousFrame && nextFrame && previousFrame !== nextFrame) {
+      holdFrameAsCover(state, previousFrame);
+    }
+
     updateAutoplayButtonState(state);
 
-    scheduleAutoplayAdvance(state, 80);
+    scheduleAutoplayAdvance(state, AUTOPLAY_FIRST_ADVANCE_DELAY);
   }
 
-  function restartAutoplayFromBeginning(state) {
-    if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
-    if (state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) return;
+  function getAutoplayStartInstruction(state) {
+    if (!state || !state.autoplayConfig || state.autoplayConfig.maxInstruction === null || state.autoplayConfig.maxInstruction === undefined) {
+      return 0;
+    }
 
-    pauseAutoplay(state);
-    state.currentInstr = 0;
-    state.frameMayBeOutOfSync = false;
-    state.pendingAutoplayStart = true;
-    rebuildAutoplayFrames(state, true);
-    updateAutoplayButtonState(state);
+    if (!state.manualViewKnown) {
+      return 0;
+    }
+
+    var knownInstruction = clamp(
+      Math.max(0, parseInt(state.manualViewInstr, 10) || 0),
+      0,
+      state.autoplayConfig.maxInstruction
+    );
+
+    if (knownInstruction >= state.autoplayConfig.maxInstruction) {
+      return 0;
+    }
+
+    return knownInstruction;
   }
 
   function startAutoplay(state) {
     if (!state || !state.autoplayConfig || !state.autoplayConfig.enabled) return;
 
-    if (state.frameMayBeOutOfSync) {
-      restartAutoplayFromBeginning(state);
+    if (state.manualInteractionPending) {
+      state.pendingManualAutoplay = true;
+      updateAutoplayButtonState(state);
       return;
     }
 
-    beginAutoplayPlayback(state);
+    state.manualSyncToken = null;
+    clearManualSyncTimer(state);
+    state.currentInstr = getAutoplayStartInstruction(state);
+    updateIframeVisibility(state);
+
+    if (!state.autoplayReady) {
+      state.pendingAutoplayStart = true;
+      updateAutoplayButtonState(state);
+      return;
+    }
+
+    clearAutoplayTimer(state);
+    state.autoplayStartTimer = window.setTimeout(function () {
+      state.autoplayStartTimer = null;
+      beginAutoplayPlayback(state);
+    }, 34);
   }
 
   function updateExpandButtonState(state) {
@@ -1339,7 +1800,7 @@
     state.frameContainer.style.maxHeight = bounds.max + 'px';
     state.frameContainer.style.height = safeHeight + 'px';
 
-    state.iframes.forEach(function (iframe) {
+    getAllIframes(state).forEach(function (iframe) {
       iframe.style.maxWidth = 'none';
       iframe.style.height = '100%';
     });
@@ -1531,6 +1992,8 @@
     if (!state) return;
 
     pauseAutoplay(state);
+    clearManualSyncTimer(state);
+    clearManualInteractionTimer(state);
 
     if (state.isExpanded) {
       collapseExpandedBlock(state, false);
@@ -1576,20 +2039,24 @@
   }
 
   function createVisualizerIframe(state, instruction) {
+    var role = arguments.length > 2 && arguments[2] ? arguments[2] : 'autoplay';
     var iframe = document.createElement('iframe');
     iframe.loading = 'eager';
     iframe.title = state.langConfig.label + ' Visualizer';
     iframe.referrerPolicy = 'strict-origin-when-cross-origin';
     iframe.dataset.ptInstr = String(instruction);
-    iframe.addEventListener('load', function () {
-      markFrameLoaded(state, instruction);
-    });
-    iframe.addEventListener('focus', function () {
-      markIframeStateDirty(state);
-    });
-    iframe.addEventListener('pointerdown', function () {
-      markIframeStateDirty(state);
-    });
+    iframe.dataset.ptRole = role;
+
+    if (role === 'autoplay') {
+      iframe.addEventListener('load', function () {
+        markFrameLoaded(state, instruction);
+      });
+    }
+
+    if (role === 'manual') {
+      ensureManualIframeTracking(state, iframe);
+    }
+
     loadInstructionInIframe(state, iframe, instruction, true);
     return iframe;
   }
@@ -1636,6 +2103,7 @@
     var state = {
       wrapper: wrapper,
       frameContainer: frameContainer,
+      manualIframe: null,
       iframes: [],
       activeIframeIndex: initialInstr,
       code: normalizedCode,
@@ -1657,9 +2125,21 @@
       traceMetaRequested: false,
       isAutoplaying: false,
       autoplayTimer: null,
+      autoplayStartTimer: null,
+      autoplayPoolRefreshTimer: null,
       readinessTimer: null,
       pendingAutoplayStart: false,
       frameMayBeOutOfSync: false,
+      manualViewInstr: initialInstr,
+      manualViewKnown: true,
+      displayMode: 'manual',
+      manualSyncToken: null,
+      manualSyncTimer: null,
+      manualInteractionPending: false,
+      pendingManualAutoplay: false,
+      manualInteractionTimer: null,
+      coverFrame: null,
+      coverTimer: null,
       userInlineHeight: null,
       userExpandedHeight: null,
       isExpanded: false,
@@ -1672,21 +2152,10 @@
       boundKeydown: null
     };
 
-    if (
-      state.autoplayConfig.enabled &&
-      state.autoplayConfig.maxInstruction !== null &&
-      state.autoplayConfig.maxInstruction !== undefined
-    ) {
-      for (var instr = 0; instr <= state.autoplayConfig.maxInstruction; instr += 1) {
-        state.iframes.push(createVisualizerIframe(state, instr));
-      }
-    } else {
-      state.iframes.push(createVisualizerIframe(state, initialInstr));
-    }
+    wrapper.__ptState = state;
 
-    state.iframes.forEach(function (frame) {
-      frameContainer.appendChild(frame);
-    });
+    state.manualIframe = createVisualizerIframe(state, initialInstr, 'manual');
+    frameContainer.appendChild(state.manualIframe);
     frameContainer.appendChild(resizeHandleEl);
 
     updateIframeVisibility(state);

@@ -25,8 +25,9 @@
 
 ## 效果预览
 
-### python代码块效果
-````md
+下面这一段会被插件直接渲染成可交互面板，不会显示原始 Markdown 围栏。
+
+### Python 直接渲染预览
 ```pytutor
 word = "level"
 counts = {}
@@ -36,15 +37,14 @@ for ch in word:
 
 print(counts)
 ```
-````
 
 
-#### python步骤执行
+#### Python 步骤执行动图
 ![python-step](./images/python-step.gif)
-#### python自动执行
+#### Python 自动执行动图
 ![python-auto](./images/python-auto.gif)
 
-````md
+### Java 直接渲染预览
 ```pytutor-java
 public class Main {
     public static void main(String[] args) {
@@ -61,11 +61,10 @@ public class Main {
     }
 }
 ```
-````
 
-#### java步骤执行
+#### Java 步骤执行动图
 ![python-step](./images/java-step.gif)
-#### java自动执行
+#### Java 自动执行动图
 ![python-auto](./images/java-auto.gif)
 
 ---
@@ -132,7 +131,9 @@ https://github.com/sherlockmen/docsify-pytutor
 
 ---
 
-## Markdown 使用方式
+## Markdown 原始写法示例
+
+下面这一节只展示 Markdown 应该怎么写，所以会以原始代码块形式显示，右上角通常会看到 `md` 标识，这一段是预期行为。
 
 ### Python
 
