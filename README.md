@@ -28,6 +28,7 @@
 下面这一段会被插件直接渲染成可交互面板，不会显示原始 Markdown 围栏。
 
 ### Python 直接渲染预览
+````md
 ```pytutor
 word = "level"
 counts = {}
@@ -37,6 +38,7 @@ for ch in word:
 
 print(counts)
 ```
+````
 
 
 #### Python 步骤执行动图
@@ -45,6 +47,8 @@ print(counts)
 ![python-auto](./images/python-auto.gif)
 
 ### Java 直接渲染预览
+
+````md
 ```pytutor-java
 public class Main {
     public static void main(String[] args) {
@@ -61,6 +65,7 @@ public class Main {
     }
 }
 ```
+````
 
 #### Java 步骤执行动图
 ![python-step](./images/java-step.gif)
@@ -84,7 +89,7 @@ https://github.com/sherlockmen/docsify-pytutor
 在`docsify`的`index.html`文件中引用以下CDN地址
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/sherlockmen/docsify-pytutor@v2.0.0/dist/docsify-pytutor.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/sherlockmen/docsify-pytutor@v2.0.1/dist/docsify-pytutor.js"></script>
 ```
 
 ### 方式二：本地引用
@@ -132,8 +137,6 @@ https://github.com/sherlockmen/docsify-pytutor
 ---
 
 ## Markdown 原始写法示例
-
-下面这一节只展示 Markdown 应该怎么写，所以会以原始代码块形式显示，右上角通常会看到 `md` 标识，这一段是预期行为。
 
 ### Python
 
